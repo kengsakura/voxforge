@@ -1,0 +1,5 @@
+{
+  "name": "Gemini VoxForge",
+  "description": "A professional-grade Text-to-Speech application powered by Google Gemini 2.5, featuring customizable voices, styles, and batch processing.",
+  "requestFramePermissions": []
+}
