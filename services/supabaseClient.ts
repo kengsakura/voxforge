@@ -9,16 +9,12 @@ export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
-// Device ID for anonymous users (stored in localStorage)
-const DEVICE_ID_KEY = 'voxforge_device_id';
-
-export function getDeviceId(): string {
-  let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-  if (!deviceId) {
-    deviceId = 'device_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-    localStorage.setItem(DEVICE_ID_KEY, deviceId);
-  }
-  return deviceId;
+// Get current user ID (requires authentication)
+export async function getUserId(): Promise<string | null> {
+  if (!supabase) return null;
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  return user?.id || null;
 }
 
 // ============ PRESETS ============
@@ -26,12 +22,13 @@ export function getDeviceId(): string {
 export async function fetchPresets(): Promise<Preset[]> {
   if (!supabase) return [];
   
-  const deviceId = getDeviceId();
+  const userId = await getUserId();
+  if (!userId) return [];
   
   const { data, error } = await supabase
     .from('presets')
     .select('*')
-    .eq('device_id', deviceId)
+    .eq('user_id', userId)
     .order('created_at', { ascending: true });
   
   if (error) {
@@ -53,13 +50,14 @@ export async function fetchPresets(): Promise<Preset[]> {
 export async function savePreset(preset: Preset): Promise<boolean> {
   if (!supabase) return false;
   
-  const deviceId = getDeviceId();
+  const userId = await getUserId();
+  if (!userId) return false;
   
   const { error } = await supabase
     .from('presets')
     .upsert({
       id: preset.id,
-      device_id: deviceId,
+      user_id: userId,
       name: preset.name,
       system_prompt: preset.systemPrompt,
       speed: preset.speed,
@@ -98,12 +96,13 @@ export async function deletePresetFromDb(presetId: string): Promise<boolean> {
 export async function fetchSettings(): Promise<AppSettings | null> {
   if (!supabase) return null;
   
-  const deviceId = getDeviceId();
+  const userId = await getUserId();
+  if (!userId) return null;
   
   const { data, error } = await supabase
     .from('user_settings')
     .select('*')
-    .eq('device_id', deviceId)
+    .eq('user_id', userId)
     .single();
   
   if (error) {
@@ -123,17 +122,18 @@ export async function fetchSettings(): Promise<AppSettings | null> {
 export async function saveSettings(settings: AppSettings): Promise<boolean> {
   if (!supabase) return false;
   
-  const deviceId = getDeviceId();
+  const userId = await getUserId();
+  if (!userId) return false;
   
   const { error } = await supabase
     .from('user_settings')
     .upsert({
-      device_id: deviceId,
+      user_id: userId,
       chunk_size: settings.chunkSize,
       merge_output: settings.mergeOutput,
       api_key: settings.apiKey || null,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'device_id' });
+    }, { onConflict: 'user_id' });
   
   if (error) {
     console.error('Error saving settings:', error);

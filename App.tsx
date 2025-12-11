@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Settings, Play, Download, Mic2, FileAudio,
   Trash2, Plus, Save, Disc, Loader2, Volume2,
-  ChevronRight, Activity, AlertCircle, Menu, X, Cloud, CloudOff
+  ChevronRight, Activity, AlertCircle, Menu, X, Cloud, CloudOff, LogOut, User
 } from 'lucide-react';
 
 import { GeminiService } from './services/geminiService';
 import SettingsModal from './components/SettingsModal';
+import AuthPage from './components/AuthPage';
+import { useAuth } from './contexts/AuthContext';
 import { createWavBlob, mergeBuffers } from './utils/audioUtils';
 import {
   isSupabaseConfigured,
@@ -26,6 +28,9 @@ const STORAGE_KEY_PRESETS = 'gemini_voxforge_presets';
 const STORAGE_KEY_SETTINGS = 'gemini_voxforge_settings';
 
 const App: React.FC = () => {
+  // Auth
+  const { user, loading: authLoading, signOut } = useAuth();
+  
   // Services
   const geminiServiceRef = useRef<GeminiService>(new GeminiService());
 
@@ -384,6 +389,20 @@ const App: React.FC = () => {
     audio.onended = () => setPlayingChunkId(null);
   };
 
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // Show auth page if not logged in and Supabase is configured
+  if (!user && isCloudConnected) {
+    return <AuthPage />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col md:flex-row font-sans">
 
@@ -573,6 +592,25 @@ const App: React.FC = () => {
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-slate-800 space-y-2">
+          {/* User Info */}
+          {user && (
+            <div className="flex items-center gap-2 p-2 bg-slate-900/50 rounded-lg border border-slate-800">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                <User size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-slate-300 truncate">{user.email}</div>
+              </div>
+              <button
+                onClick={signOut}
+                className="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-slate-800 transition-colors"
+                title="Sign out"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          )}
+          
           {/* Cloud Sync Status */}
           <div className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs ${
             isCloudConnected 
