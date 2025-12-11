@@ -51,11 +51,13 @@ const App: React.FC = () => {
   // State: Processing
   const [isGenerating, setIsGenerating] = useState(false);
   const [chunks, setChunks] = useState<AudioChunk[]>([]);
+  const [mergedAudio, setMergedAudio] = useState<Blob | null>(null);
   const [progress, setProgress] = useState(0);
 
   // State: UI
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [playingChunkId, setPlayingChunkId] = useState<number | null>(null);
+  const [expandedChunks, setExpandedChunks] = useState<Set<number>>(new Set());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -205,6 +207,8 @@ const App: React.FC = () => {
 
     setIsGenerating(true);
     setChunks([]); // Clear previous
+    setMergedAudio(null); // Clear merged audio
+    setExpandedChunks(new Set());
     setProgress(0);
 
     // 1. Smart Chunking - ตัดที่จุดสิ้นสุดประโยค/คำ ไม่ตัดกลางคำ
@@ -350,7 +354,21 @@ const App: React.FC = () => {
     
     console.log(`Merging ${successfulBuffers.length} of ${tempChunks.length} chunks`);
 
-    // 3. Merging (if enabled)
+    // 3. Create blobs for all chunks first
+    const chunksWithBlobs = tempChunks.map((chunk, index) => {
+      const buffer = audioBuffers[index];
+      if (buffer) {
+        return {
+          ...chunk,
+          blob: createWavBlob(buffer),
+          status: 'completed' as const
+        };
+      }
+      return { ...chunk, status: 'error' as const, error: 'Failed to generate' };
+    });
+    setChunks(chunksWithBlobs);
+
+    // 4. Merging (if enabled) - keep chunks visible, add merged as separate
     if (settings.mergeOutput && successfulBuffers.length > 0) {
       try {
         console.log('Starting merge...');
@@ -359,29 +377,11 @@ const App: React.FC = () => {
         const finalBlob = createWavBlob(mergedBuffer);
         console.log(`Final blob size: ${finalBlob.size} bytes`);
         
-        // Replace chunks with a single result
-        setChunks([{
-          id: 999,
-          text: `Full Merged Audio (${successfulBuffers.length} chunks)`,
-          blob: finalBlob,
-          status: 'completed'
-        }]);
+        // Store merged audio separately, keep chunks visible
+        setMergedAudio(finalBlob);
       } catch (err) {
         console.error('Merge failed:', err);
-        // Keep individual chunks if merge fails
-        // Create blobs for each successful buffer
-        const chunksWithBlobs = tempChunks.map((chunk, index) => {
-          const buffer = audioBuffers[index];
-          if (buffer) {
-            return {
-              ...chunk,
-              blob: createWavBlob(buffer),
-              status: 'completed' as const
-            };
-          }
-          return { ...chunk, status: 'error' as const, error: 'Failed to generate' };
-        });
-        setChunks(chunksWithBlobs);
+        setMergedAudio(null);
       }
     }
 
@@ -725,7 +725,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Results Area */}
-          {(chunks.length > 0 || isGenerating) && (
+          {(chunks.length > 0 || mergedAudio || isGenerating) && (
             <div className="border-t border-slate-800 pt-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <h3 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
                 <Disc size={20} className="text-purple-500" />
@@ -742,57 +742,141 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              <div className="grid gap-3">
-                {chunks.map((chunk) => (
-                  <div
-                    key={chunk.id}
-                    className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-4 flex items-center justify-between group hover:border-slate-600 transition-colors"
-                  >
-                    <div className="flex items-center gap-4 overflow-hidden">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${chunk.status === 'generating' ? 'bg-amber-900/30 text-amber-500' :
-                        chunk.status === 'error' ? 'bg-red-900/30 text-red-500' :
-                          'bg-emerald-900/30 text-emerald-500'
-                        }`}>
-                        {chunk.status === 'generating' ? <Loader2 size={20} className="animate-spin" /> :
-                          chunk.status === 'error' ? <AlertCircle size={20} /> :
-                            <FileAudio size={20} />
-                        }
+              {/* Merged Audio (if available) */}
+              {mergedAudio && !isGenerating && (
+                <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/30 rounded-xl p-4 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-purple-600/30 flex items-center justify-center">
+                        <Disc size={24} className="text-purple-400" />
                       </div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-slate-200 truncate">
-                          {chunk.text.length > 50 ? chunk.text.substring(0, 50) + '...' : chunk.text}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {chunk.status === 'completed' ? 'Ready to play' : chunk.status}
-                        </div>
+                      <div>
+                        <div className="font-semibold text-white text-lg">Full Merged Audio</div>
+                        <div className="text-sm text-slate-400">{chunks.filter(c => c.status === 'completed').length} chunks combined</div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      {chunk.status === 'completed' && chunk.blob && (
-                        <>
-                          <button
-                            onClick={() => playAudio(chunk.blob, chunk.id)}
-                            className={`p-2 rounded-full transition-colors ${playingChunkId === chunk.id
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white'
-                              }`}
-                          >
-                            {playingChunkId === chunk.id ? <Volume2 size={18} className="animate-pulse" /> : <Play size={18} />}
-                          </button>
-
-                          <a
-                            href={URL.createObjectURL(chunk.blob)}
-                            download={`gemini-vox-${Date.now()}-${chunk.id}.wav`}
-                            className="p-2 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
-                          >
-                            <Download size={18} />
-                          </a>
-                        </>
-                      )}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => playAudio(mergedAudio, -1)}
+                        className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                          playingChunkId === -1
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/50'
+                        }`}
+                      >
+                        {playingChunkId === -1 ? <Volume2 size={18} className="animate-pulse" /> : <Play size={18} />}
+                        <span>{playingChunkId === -1 ? 'Playing...' : 'Play All'}</span>
+                      </button>
+                      <a
+                        href={URL.createObjectURL(mergedAudio)}
+                        download={`gemini-vox-merged-${Date.now()}.wav`}
+                        className="px-4 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors flex items-center gap-2"
+                      >
+                        <Download size={18} />
+                        <span>Download</span>
+                      </a>
                     </div>
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Individual Chunks */}
+              <div className="space-y-2">
+                <div className="text-sm text-slate-500 mb-3">
+                  Individual Chunks ({chunks.length})
+                </div>
+                {chunks.map((chunk) => {
+                  const isExpanded = expandedChunks.has(chunk.id);
+                  const shouldTruncate = chunk.text.length > 100;
+                  
+                  return (
+                    <div
+                      key={chunk.id}
+                      className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-4 group hover:border-slate-600 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-4 flex-1 min-w-0">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                            chunk.status === 'generating' ? 'bg-amber-900/30 text-amber-500' :
+                            chunk.status === 'error' ? 'bg-red-900/30 text-red-500' :
+                            chunk.status === 'pending' ? 'bg-slate-700/50 text-slate-500' :
+                            'bg-emerald-900/30 text-emerald-500'
+                          }`}>
+                            {chunk.status === 'generating' ? <Loader2 size={20} className="animate-spin" /> :
+                              chunk.status === 'error' ? <AlertCircle size={20} /> :
+                              chunk.status === 'pending' ? <span className="text-sm font-medium">{chunk.id + 1}</span> :
+                              <FileAudio size={20} />
+                            }
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium text-slate-500">Chunk {chunk.id + 1}</span>
+                              <span className="text-xs text-slate-600">• {chunk.text.length} chars</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                chunk.status === 'completed' ? 'bg-emerald-900/30 text-emerald-400' :
+                                chunk.status === 'generating' ? 'bg-amber-900/30 text-amber-400' :
+                                chunk.status === 'error' ? 'bg-red-900/30 text-red-400' :
+                                'bg-slate-700/50 text-slate-500'
+                              }`}>
+                                {chunk.status}
+                              </span>
+                            </div>
+                            <div className="text-slate-300 text-sm leading-relaxed">
+                              {isExpanded || !shouldTruncate 
+                                ? chunk.text 
+                                : chunk.text.substring(0, 100) + '...'}
+                            </div>
+                            {shouldTruncate && (
+                              <button
+                                onClick={() => {
+                                  setExpandedChunks(prev => {
+                                    const newSet = new Set(prev);
+                                    if (isExpanded) {
+                                      newSet.delete(chunk.id);
+                                    } else {
+                                      newSet.add(chunk.id);
+                                    }
+                                    return newSet;
+                                  });
+                                }}
+                                className="text-xs text-blue-400 hover:text-blue-300 mt-2"
+                              >
+                                {isExpanded ? '▲ Show less' : '▼ Show more'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {chunk.status === 'completed' && chunk.blob && (
+                            <>
+                              <button
+                                onClick={() => playAudio(chunk.blob, chunk.id)}
+                                className={`p-2 rounded-full transition-colors ${
+                                  playingChunkId === chunk.id
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white'
+                                }`}
+                                title="Play chunk"
+                              >
+                                {playingChunkId === chunk.id ? <Volume2 size={18} className="animate-pulse" /> : <Play size={18} />}
+                              </button>
+
+                              <a
+                                href={URL.createObjectURL(chunk.blob)}
+                                download={`gemini-vox-chunk-${chunk.id + 1}.wav`}
+                                className="p-2 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
+                                title="Download chunk"
+                              >
+                                <Download size={18} />
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
