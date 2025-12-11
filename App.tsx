@@ -65,13 +65,16 @@ const App: React.FC = () => {
 
   // --- Initialization ---
   useEffect(() => {
+    // Wait for auth to finish loading before loading data
+    if (authLoading) return;
+
     const loadData = async () => {
       // Check if Supabase is configured
       const cloudEnabled = isSupabaseConfigured();
       setIsCloudConnected(cloudEnabled);
 
-      if (cloudEnabled) {
-        // Load from Supabase
+      if (cloudEnabled && user) {
+        // Load from Supabase only when user is authenticated
         setIsSyncing(true);
         try {
           const [cloudPresets, cloudSettings] = await Promise.all([
@@ -81,6 +84,8 @@ const App: React.FC = () => {
 
           if (cloudPresets.length > 0) {
             setPresets([DEFAULT_PRESET, ...cloudPresets]);
+          } else {
+            setPresets([DEFAULT_PRESET]);
           }
 
           if (cloudSettings) {
@@ -93,8 +98,8 @@ const App: React.FC = () => {
           console.error('Failed to load from Supabase:', e);
         }
         setIsSyncing(false);
-      } else {
-        // Fallback to localStorage
+      } else if (!cloudEnabled) {
+        // Fallback to localStorage only when Supabase is not configured
         const savedPresets = localStorage.getItem(STORAGE_KEY_PRESETS);
         if (savedPresets) {
           try {
@@ -120,7 +125,7 @@ const App: React.FC = () => {
     };
 
     loadData();
-  }, []);
+  }, [authLoading, user]);
 
   // --- Handlers: Configuration ---
   const handleSaveSettings = async (newSettings: AppSettings) => {

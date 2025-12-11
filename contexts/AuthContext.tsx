@@ -8,7 +8,6 @@ interface AuthContextType {
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUpWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -64,18 +63,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signInWithGoogle = async () => {
-    if (!supabase) return { error: new Error('Supabase not configured') };
-    
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-    return { error };
-  };
-
   const signOut = async () => {
     if (!supabase) return;
     await supabase.auth.signOut();
@@ -89,7 +76,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         signInWithEmail,
         signUpWithEmail,
-        signInWithGoogle,
         signOut,
       }}
     >
