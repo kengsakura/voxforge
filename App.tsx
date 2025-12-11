@@ -209,11 +209,14 @@ const App: React.FC = () => {
 
     // 1. Smart Chunking - ตัดที่จุดสิ้นสุดประโยค/คำ ไม่ตัดกลางคำ
     const textChunks: string[] = [];
-    let remaining = inputText;
+    let remaining = inputText.trim();
+    
+    console.log('Starting chunking, total length:', remaining.length, 'chunkSize:', settings.chunkSize);
     
     while (remaining.length > 0) {
       if (remaining.length <= settings.chunkSize) {
         textChunks.push(remaining);
+        console.log('Final chunk:', remaining.length, 'chars');
         break;
       }
       
@@ -227,8 +230,8 @@ const App: React.FC = () => {
       
       for (const bp of breakPoints) {
         const lastIndex = chunk.lastIndexOf(bp);
-        // หาจุดตัดที่อยู่หลัง 50% ของ chunk เพื่อไม่ให้ chunk เล็กเกินไป
-        if (lastIndex > settings.chunkSize * 0.5) {
+        // หาจุดตัดที่อยู่หลัง 30% ของ chunk เพื่อไม่ให้ chunk เล็กเกินไป
+        if (lastIndex > settings.chunkSize * 0.3) {
           breakIndex = lastIndex + bp.length;
           break;
         }
@@ -239,9 +242,17 @@ const App: React.FC = () => {
         breakIndex = settings.chunkSize;
       }
       
-      textChunks.push(remaining.slice(0, breakIndex).trim());
-      remaining = remaining.slice(breakIndex).trim();
+      const chunkText = remaining.slice(0, breakIndex);
+      textChunks.push(chunkText);
+      console.log('Chunk', textChunks.length, ':', chunkText.length, 'chars, ends with:', JSON.stringify(chunkText.slice(-20)));
+      
+      remaining = remaining.slice(breakIndex);
+      // Only trim leading whitespace from remaining, not trailing
+      remaining = remaining.replace(/^\s+/, '');
     }
+    
+    console.log('Total chunks created:', textChunks.length);
+    console.log('Total chars in chunks:', textChunks.reduce((sum, c) => sum + c.length, 0));
 
     const tempChunks: AudioChunk[] = textChunks.map((text, index) => ({
       id: index,
