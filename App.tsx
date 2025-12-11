@@ -132,7 +132,7 @@ const App: React.FC = () => {
     setSettings(newSettings);
     
     // Save to Supabase or localStorage
-    if (isCloudConnected) {
+    if (isCloudConnected && user) {
       await saveSettingsToDb(newSettings);
     } else {
       localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(newSettings));
@@ -158,8 +158,9 @@ const App: React.FC = () => {
     setPresets(newPresets);
     
     // Save to Supabase or localStorage
-    if (isCloudConnected) {
-      await savePresetToDb(newPreset);
+    if (isCloudConnected && user) {
+      const success = await savePresetToDb(newPreset);
+      console.log('Save preset result:', success, newPreset);
     } else {
       localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(newPresets));
     }
@@ -176,7 +177,7 @@ const App: React.FC = () => {
     setPresets(newPresets);
     
     // Delete from Supabase or localStorage
-    if (isCloudConnected) {
+    if (isCloudConnected && user) {
       await deletePresetFromDb(id);
     } else {
       localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(newPresets));
