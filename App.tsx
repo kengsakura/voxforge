@@ -2,12 +2,20 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Settings, Play, Download, Mic2, FileAudio,
   Trash2, Plus, Save, Disc, Loader2, Volume2,
-  ChevronRight, Activity, AlertCircle, Menu, X
+  ChevronRight, Activity, AlertCircle, Menu, X, Cloud, CloudOff
 } from 'lucide-react';
 
 import { GeminiService } from './services/geminiService';
 import SettingsModal from './components/SettingsModal';
 import { createWavBlob, mergeBuffers } from './utils/audioUtils';
+import {
+  isSupabaseConfigured,
+  fetchPresets,
+  savePreset as savePresetToDb,
+  deletePresetFromDb,
+  fetchSettings,
+  saveSettings as saveSettingsToDb
+} from './services/supabaseClient';
 import {
   AppSettings, Preset, VoiceName, SpeedSetting,
   AudioChunk, DEFAULT_PRESET, DEFAULT_SYSTEM_PROMPT
@@ -44,40 +52,82 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [playingChunkId, setPlayingChunkId] = useState<number | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isCloudConnected, setIsCloudConnected] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Audio Refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // --- Initialization ---
   useEffect(() => {
-    // Load persisted data
-    const savedPresets = localStorage.getItem(STORAGE_KEY_PRESETS);
-    if (savedPresets) {
-      try {
-        setPresets(JSON.parse(savedPresets));
-      } catch (e) {
-        console.error("Failed to load presets", e);
-      }
-    }
+    const loadData = async () => {
+      // Check if Supabase is configured
+      const cloudEnabled = isSupabaseConfigured();
+      setIsCloudConnected(cloudEnabled);
 
-    const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings);
-        setSettings(parsed);
-        if (parsed.apiKey) {
-          geminiServiceRef.current.updateApiKey(parsed.apiKey);
+      if (cloudEnabled) {
+        // Load from Supabase
+        setIsSyncing(true);
+        try {
+          const [cloudPresets, cloudSettings] = await Promise.all([
+            fetchPresets(),
+            fetchSettings()
+          ]);
+
+          if (cloudPresets.length > 0) {
+            setPresets([DEFAULT_PRESET, ...cloudPresets]);
+          }
+
+          if (cloudSettings) {
+            setSettings(cloudSettings);
+            if (cloudSettings.apiKey) {
+              geminiServiceRef.current.updateApiKey(cloudSettings.apiKey);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load from Supabase:', e);
         }
-      } catch (e) {
-        console.error("Failed to load settings", e);
+        setIsSyncing(false);
+      } else {
+        // Fallback to localStorage
+        const savedPresets = localStorage.getItem(STORAGE_KEY_PRESETS);
+        if (savedPresets) {
+          try {
+            setPresets(JSON.parse(savedPresets));
+          } catch (e) {
+            console.error("Failed to load presets", e);
+          }
+        }
+
+        const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
+        if (savedSettings) {
+          try {
+            const parsed = JSON.parse(savedSettings);
+            setSettings(parsed);
+            if (parsed.apiKey) {
+              geminiServiceRef.current.updateApiKey(parsed.apiKey);
+            }
+          } catch (e) {
+            console.error("Failed to load settings", e);
+          }
+        }
       }
-    }
+    };
+
+    loadData();
   }, []);
 
   // --- Handlers: Configuration ---
-  const handleSaveSettings = (newSettings: AppSettings) => {
+  const handleSaveSettings = async (newSettings: AppSettings) => {
     setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(newSettings));
+    
+    // Save to Supabase or localStorage
+    if (isCloudConnected) {
+      await saveSettingsToDb(newSettings);
+    } else {
+      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(newSettings));
+    }
+    
     if (newSettings.apiKey !== undefined) {
       geminiServiceRef.current.updateApiKey(newSettings.apiKey || '');
     }
@@ -87,7 +137,7 @@ const App: React.FC = () => {
     setCurrentPreset(prev => ({ ...prev, [key]: value }));
   };
 
-  const savePreset = () => {
+  const savePreset = async () => {
     if (!presetNameInput.trim()) return;
     const newPreset: Preset = {
       ...currentPreset,
@@ -96,7 +146,14 @@ const App: React.FC = () => {
     };
     const newPresets = [...presets, newPreset];
     setPresets(newPresets);
-    localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(newPresets));
+    
+    // Save to Supabase or localStorage
+    if (isCloudConnected) {
+      await savePresetToDb(newPreset);
+    } else {
+      localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(newPresets));
+    }
+    
     setPresetNameInput('');
   };
 
@@ -104,10 +161,17 @@ const App: React.FC = () => {
     setCurrentPreset(preset);
   };
 
-  const deletePreset = (id: string) => {
+  const deletePreset = async (id: string) => {
     const newPresets = presets.filter(p => p.id !== id);
     setPresets(newPresets);
-    localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(newPresets));
+    
+    // Delete from Supabase or localStorage
+    if (isCloudConnected) {
+      await deletePresetFromDb(id);
+    } else {
+      localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(newPresets));
+    }
+    
     if (currentPreset.id === id) {
       setCurrentPreset(DEFAULT_PRESET);
     }
@@ -508,7 +572,31 @@ const App: React.FC = () => {
         </div>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-slate-800">
+        <div className="p-4 border-t border-slate-800 space-y-2">
+          {/* Cloud Sync Status */}
+          <div className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs ${
+            isCloudConnected 
+              ? 'bg-emerald-900/20 text-emerald-400 border border-emerald-800/50' 
+              : 'bg-slate-800/50 text-slate-500 border border-slate-700/50'
+          }`}>
+            {isSyncing ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                <span>Syncing...</span>
+              </>
+            ) : isCloudConnected ? (
+              <>
+                <Cloud size={14} />
+                <span>Cloud Sync Active</span>
+              </>
+            ) : (
+              <>
+                <CloudOff size={14} />
+                <span>Local Storage Only</span>
+              </>
+            )}
+          </div>
+          
           <button
             onClick={() => setIsSettingsOpen(true)}
             className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-white py-2 rounded-md hover:bg-slate-900 transition-colors text-sm"
