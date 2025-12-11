@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Settings, Play, Download, Mic2, FileAudio,
   Trash2, Plus, Save, Disc, Loader2, Volume2,
-  ChevronRight, Activity, AlertCircle
+  ChevronRight, Activity, AlertCircle, Menu, X
 } from 'lucide-react';
 
 import { GeminiService } from './services/geminiService';
@@ -43,6 +43,7 @@ const App: React.FC = () => {
   // State: UI
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [playingChunkId, setPlayingChunkId] = useState<number | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Audio Refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -322,15 +323,58 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col md:flex-row font-sans">
 
+      {/* Mobile Header */}
+      <div className="md:hidden flex items-center justify-between p-4 bg-slate-950 border-b border-slate-800 sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+            <Mic2 size={18} className="text-white" />
+          </div>
+          <h1 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+            VoxForge
+          </h1>
+        </div>
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 rounded-lg bg-slate-800 text-slate-300"
+        >
+          {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-20"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar: Presets & Config */}
-      <aside className="w-full md:w-80 bg-slate-950 border-r border-slate-800 flex flex-col h-screen sticky top-0 overflow-hidden">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-20
+        w-80 bg-slate-950 border-r border-slate-800 
+        flex flex-col h-screen overflow-hidden
+        transform transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <div className="hidden md:flex p-6 border-b border-slate-800 items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-900/20">
             <Mic2 size={18} className="text-white" />
           </div>
           <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
             VoxForge
           </h1>
+        </div>
+        
+        {/* Mobile close button inside sidebar */}
+        <div className="md:hidden p-4 border-b border-slate-800 flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-300">Settings</span>
+          <button
+            onClick={() => setIsSidebarOpen(false)}
+            className="p-1 rounded text-slate-400 hover:text-white"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -476,19 +520,19 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+      <main className="flex-1 flex flex-col min-h-screen md:h-screen overflow-auto md:overflow-hidden relative">
 
         {/* Header */}
-        <div className="h-16 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-10 flex items-center px-6 justify-between shrink-0">
-          <div className="flex items-center gap-2 text-slate-400 text-sm">
+        <div className="min-h-14 md:h-16 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-10 flex flex-col sm:flex-row items-start sm:items-center px-4 md:px-6 py-3 sm:py-0 justify-between shrink-0 gap-3 sm:gap-0">
+          <div className="flex items-center gap-2 text-slate-400 text-xs sm:text-sm">
             <span className="font-medium text-slate-200">Editor</span>
             <ChevronRight size={14} />
-            <span>{currentPreset.voice}</span>
+            <span className="truncate max-w-20 sm:max-w-none">{currentPreset.voice}</span>
             <ChevronRight size={14} />
             <span>{currentPreset.speed}</span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
             <div className="text-xs font-mono text-slate-500 bg-slate-950 px-3 py-1 rounded-full border border-slate-800">
               {inputText.length} chars
             </div>
@@ -496,19 +540,20 @@ const App: React.FC = () => {
             <button
               onClick={generateAudio}
               disabled={isGenerating || !inputText.trim()}
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg font-semibold text-white transition-all shadow-lg shadow-blue-900/20 ${isGenerating || !inputText.trim()
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2 rounded-lg font-semibold text-white text-sm sm:text-base transition-all shadow-lg shadow-blue-900/20 ${isGenerating || !inputText.trim()
                 ? 'bg-slate-700 cursor-not-allowed opacity-50'
                 : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95'
                 }`}
             >
               {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Activity size={18} />}
-              {isGenerating ? 'Generating...' : 'Generate Audio'}
+              <span className="hidden xs:inline">{isGenerating ? 'Generating...' : 'Generate Audio'}</span>
+              <span className="xs:hidden">{isGenerating ? 'Gen...' : 'Generate'}</span>
             </button>
           </div>
         </div>
 
         {/* Editor Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 scroll-smooth">
 
           {/* Prompt / System Instruction */}
           <div className="space-y-2">
